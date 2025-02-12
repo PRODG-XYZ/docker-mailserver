@@ -1,9 +1,11 @@
+version: "3.8"
+
 services:
   mailserver:
     image: ghcr.io/docker-mailserver/docker-mailserver:latest
     container_name: mailserver
     # Provide the FQDN of your mail server here (Your DNS MX record should point to this value)
-    hostname: mail.example.com
+    hostname: mail.prodg.xyz
     env_file: mailserver.env
     # More information about the mail-server ports:
     # https://docker-mailserver.github.io/docker-mailserver/latest/config/security/understanding-the-ports/
@@ -22,9 +24,37 @@ services:
     restart: always
     stop_grace_period: 1m
     # Uncomment if using `ENABLE_FAIL2BAN=1`:
-    # cap_add:
-    #   - NET_ADMIN
+    cap_add:
+      - NET_ADMIN
     healthcheck:
       test: "ss --listening --tcp | grep -P 'LISTEN.+:smtp' || exit 1"
       timeout: 3s
       retries: 0
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    hostname: mailserver       # e.g. "my-tailscale-node"
+    environment:
+      - TS_AUTHKEY=  # Generate an auth key from your admin console
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false       # Use kernel networking (set to true if needed)
+      # Enable Tailscale SSH support:
+      - TS_EXTRA_ARGS=--ssh
+    volumes:
+      - tailscale-data:/var/lib/tailscale   # Persist tailscale state across restarts
+      - /dev/net/tun:/dev/net/tun           # Needed for Tailscale networking
+    cap_add:
+      - net_admin
+    restart: unless-stopped
+
+  app:
+    image: ts-mailserver:latest   # Replace with your application’s image
+    # This container shares the Tailscale network stack with the "tailscale" container.
+    network_mode: service:tailscale
+    restart: unless-stopped
+    # Add additional configuration for your application as needed
+
+volumes:
+  tailscale-data:
+    driver: local
